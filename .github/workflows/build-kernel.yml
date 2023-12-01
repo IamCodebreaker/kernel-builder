@@ -32,8 +32,8 @@ jobs:
 
       - name: Build kernel
         run: |
-          export KBUILD_BUILD_USER="DEQUR-01"
-          export KBUILD_BUILD_HOST="NEMNEM"
+          export KBUILD_BUILD_USER="DEQUR-01(EQ)"
+          export KBUILD_BUILD_HOST="MAKBAK"
           export PATH=$GITHUB_WORKSPACE/clang/bin:${PATH}
           args="                  ARCH=arm64 \
                                   O=../out \
