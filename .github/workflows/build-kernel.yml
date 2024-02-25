@@ -1,4 +1,4 @@
-name: Build SOMEKERNEL
+name: Build SUBZERO
 
 
 on:
