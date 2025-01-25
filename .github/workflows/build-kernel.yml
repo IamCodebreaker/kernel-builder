@@ -7,10 +7,9 @@ jobs:
   build-kernel:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v3  # This already uses Node.js 20
       - name: Setup environment
         run: |
-          # Use `grep` and `cut` more efficiently to extract the necessary values from config.env
           while IFS= read -r line; do
             if [[ "$line" =~ ^ANYKERNEL_SOURCE=(.*) ]]; then echo "ANYKERNEL_SOURCE=${BASH_REMATCH[1]}" >> $GITHUB_ENV; fi
             if [[ "$line" =~ ^ANYKERNEL_SOURCE_BRANCH=(.*) ]]; then echo "ANYKERNEL_SOURCE_BRANCH=${BASH_REMATCH[1]}" >> $GITHUB_ENV; fi
@@ -22,7 +21,6 @@ jobs:
 
       - name: Pull toolchain
         run: |
-          # Cache toolchain to speed up subsequent builds
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 aarch64-linux-android-4.9 || echo "Toolchain already cloned"
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 arm-linux-androideabi-4.9 || echo "Toolchain already cloned"
           mkdir -p clang && curl -L https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b1.tar.gz -o clang/clang.tar.gz
@@ -40,14 +38,12 @@ jobs:
           export PATH=$GITHUB_WORKSPACE/clang/bin:${PATH}
           args="ARCH=arm64 O=../out ${{ env.BUILD_ARGS }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/aarch64-linux-android-4.9/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-"
           cd kernel-source
-          # Use a valid defconfig (e.g., generic_defconfig) from the kernel source
-          make ${args} generic_defconfig  # Change rosemary_defconfig to generic_defconfig or another valid defconfig
+          make ${args} generic_defconfig
           make -j$(($(nproc) * 2)) ${args}
 
       - name: Package kernel
         run: |
           git clone --depth=1 ${{ env.ANYKERNEL_SOURCE }} -b ${{ env.ANYKERNEL_SOURCE_BRANCH }} AnyKernel3 && rm -rf AnyKernel3/.git AnyKernel3/.github AnyKernel3/LICENSE AnyKernel3/README.md
-          # Copy kernel image and dtbo image if they exist
           for img in Image.gz-dtb Image-dtb Image.gz Image; do
             if [[ -f "out/arch/arm64/boot/$img" ]]; then
               cp "out/arch/arm64/boot/$img" AnyKernel3/$img
@@ -59,8 +55,7 @@ jobs:
           fi
 
       - name: Upload kernel to artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # Updated to v4
         with:
           name: ${{ env.KERNEL_VERSION }}_${{ env.KERNEL_TARGET }}
           path: AnyKernel3/*
-          
