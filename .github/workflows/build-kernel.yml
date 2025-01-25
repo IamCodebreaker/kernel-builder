@@ -1,38 +1,88 @@
-name: Kernel Build
+name: Build SUBZERO
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-kernel:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout source
+      - name: Checkout source code
         uses: actions/checkout@v3
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev bc
-          sudo apt-get install -y gcc-12 g++-12  # Install GCC version 12
+          sudo apt-get install -y \
+            build-essential \
+            libncurses-dev \
+            bison \
+            flex \
+            libssl-dev \
+            bc \
+            gcc-12 \
+            g++-12
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 12
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 12
           sudo update-alternatives --set gcc /usr/bin/gcc-12
           sudo update-alternatives --set g++ /usr/bin/g++-12
-          gcc --version  # Verify the GCC version
+          gcc --version
 
-      - name: Set up build environment
+      - name: Setup environment
         run: |
-          export KBUILD_BUILD_USER="DEQUR-01(EQ)"
-          export KBUILD_BUILD_HOST="github-actions"
+          # Extract necessary values from config.env
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^ANYKERNEL_SOURCE=(.*) ]]; then echo "ANYKERNEL_SOURCE=${BASH_REMATCH[1]}" >> $GITHUB_ENV; fi
+            if [[ "$line" =~ ^ANYKERNEL_SOURCE_BRANCH=(.*) ]]; then echo "ANYKERNEL_SOURCE_BRANCH=${BASH_REMATCH[1]}" >> $GITHUB_ENV; fi
+            if [[ "$line" =~ ^KERNEL_SOURCE=(.*) ]]; then echo "KERNEL_SOURCE=${BASH_REMATCH[1]}" >> $GITHUB_ENV; fi
+            if [[ "$line" =~ ^KERNEL_SOURCE_BRANCH=(.*) ]]; then echo "KERNEL_SOURCE_BRANCH=${BASH_REMATCH[1]}" >> $GITHUB_ENV; fi
+            if [[ "$line" =~ ^KERNEL_TARGET=(.*) ]]; then echo "KERNEL_TARGET=${BASH_REMATCH[1]}" >> $GITHUB_ENV; fi
+            if [[ "$line" =~ ^BUILD_ARGS=(.*) ]]; then echo "BUILD_ARGS=${BASH_REMATCH[1]}" >> $GITHUB_ENV; fi
+          done < config.env
 
-      - name: Create output directory
-        run: mkdir -p out
+      - name: Pull toolchain
+        run: |
+          # Cache toolchain to speed up subsequent builds
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 aarch64-linux-android-4.9 || echo "Toolchain already cloned"
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 arm-linux-androideabi-4.9 || echo "Toolchain already cloned"
+          mkdir -p clang && curl -L https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b1.tar.gz -o clang/clang.tar.gz
+          tar -C clang/ -xf clang/clang.tar.gz || echo "Clang already downloaded"
+
+      - name: Pull kernel source
+        run: |
+          git clone --depth=1 ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} kernel-source --recursive
+          echo "KERNEL_VERSION=$(cat kernel-source/arch/arm64/configs/${{ env.KERNEL_TARGET }}_defconfig | grep -Po '(?<=CONFIG_LOCALVERSION=")(.*)(?=")')" >> $GITHUB_ENV
+
+      - name: List available defconfigs
+        run: |
+          ls kernel-source/arch/arm64/configs
 
       - name: Build kernel
         run: |
-          make O=out ARCH=arm64 defconfig
-          make -j$(nproc) O=out ARCH=arm64
+          export KBUILD_BUILD_USER="DEQUR-01(EQ)"
+          export KBUILD_BUILD_HOST="MAKBAK"
+          export PATH=$GITHUB_WORKSPACE/clang/bin:${PATH}
+          args="ARCH=arm64 O=../out ${{ env.BUILD_ARGS }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/aarch64-linux-android-4.9/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-"
+          cd kernel-source
+          make ${args} ${{ env.KERNEL_TARGET }}_defconfig
+          make -j$(($(nproc) * 2)) ${args}
+
+      - name: Package kernel
+        run: |
+          git clone --depth=1 ${{ env.ANYKERNEL_SOURCE }} -b ${{ env.ANYKERNEL_SOURCE_BRANCH }} AnyKernel3 && rm -rf AnyKernel3/.git AnyKernel3/.github AnyKernel3/LICENSE AnyKernel3/README.md
+          # Copy kernel image and dtbo image if they exist
+          for img in Image.gz-dtb Image-dtb Image.gz Image; do
+            if [[ -f "out/arch/arm64/boot/$img" ]]; then
+              cp "out/arch/arm64/boot/$img" AnyKernel3/$img
+              break
+            fi
+          done
+          if [[ -f out/arch/arm64/boot/dtbo.img ]]; then
+            cp out/arch/arm64/boot/dtbo.img AnyKernel3/dtbo.img
+          fi
+
+      - name: Upload kernel to artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_VERSION }}_${{ env.KERNEL_TARGET }}
+          path: AnyKernel3/*
