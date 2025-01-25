@@ -20,13 +20,7 @@ jobs:
             flex \
             libssl-dev \
             bc \
-            gcc-12 \
-            g++-12
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 12
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 12
-          sudo update-alternatives --set gcc /usr/bin/gcc-12
-          sudo update-alternatives --set g++ /usr/bin/g++-12
-          gcc --version
+            curl
 
       - name: Setup environment
         run: |
@@ -42,11 +36,10 @@ jobs:
 
       - name: Pull toolchain
         run: |
-          # Cache toolchain to speed up subsequent builds
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 aarch64-linux-android-4.9 || echo "Toolchain already cloned"
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 arm-linux-androideabi-4.9 || echo "Toolchain already cloned"
           mkdir -p clang && curl -L https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b1.tar.gz -o clang/clang.tar.gz
-          tar -C clang/ -xf clang/clang.tar.gz || echo "Clang already downloaded"
+          tar -C clang/ -xf clang/clang.tar.gz
+          export PATH=$PWD/clang:$PATH
+          clang --version
 
       - name: Pull kernel source
         run: |
@@ -61,8 +54,8 @@ jobs:
         run: |
           export KBUILD_BUILD_USER="DEQUR-01(EQ)"
           export KBUILD_BUILD_HOST="MAKBAK"
-          export PATH=$GITHUB_WORKSPACE/clang/bin:${PATH}
-          args="ARCH=arm64 O=../out ${{ env.BUILD_ARGS }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/aarch64-linux-android-4.9/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-"
+          export PATH=$GITHUB_WORKSPACE/clang:${PATH}
+          args="ARCH=arm64 O=../out ${{ env.BUILD_ARGS }} CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/clang/bin/arm-linux-androideabi-"
           cd kernel-source
           make ${args} ${{ env.KERNEL_TARGET }}_defconfig
           make -j$(($(nproc) * 2)) ${args}
