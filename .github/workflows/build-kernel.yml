@@ -59,6 +59,8 @@ jobs:
           export PATH=$GITHUB_WORKSPACE/clang:${PATH}
           args="ARCH=arm64 O=../out ${{ env.BUILD_ARGS }} CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
           cd kernel-source
+          # Suppress specific warnings
+          export KCFLAGS="-Wno-deprecated-non-prototype -Wno-void-pointer-to-int-cast"
           make ${args} ${{ env.KERNEL_TARGET }}_defconfig
           make -j$(($(nproc) * 2)) ${args}
 
